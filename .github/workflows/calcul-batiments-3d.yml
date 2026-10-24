@@ -1,0 +1,133 @@
+# Reconstruction 3D des bâtiments d'une zone, déclenchée par une demande (issue)
+# créée depuis la carte de sélection. Seuls les membres du dépôt peuvent lancer un calcul.
+name: Calcul des bâtiments 3D
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  NUM: ${{ github.event.issue.number }}
+
+jobs:
+  # 1. Lire la demande et découper la zone en carrés de 1 km
+  preparer:
+    if: startsWith(github.event.issue.title, '[Calcul 3D]')
+    runs-on: ubuntu-latest
+    outputs:
+      lots: ${{ steps.prep.outputs.lots }}
+      slug: ${{ steps.prep.outputs.slug }}
+    steps:
+      - name: Vérifier que l'auteur est membre du dépôt
+        env:
+          ASSO: ${{ github.event.issue.author_association }}
+        run: |
+          case "$ASSO" in
+            OWNER|MEMBER|COLLABORATOR) echo "Auteur autorisé ($ASSO)" ;;
+            *) gh issue comment "$NUM" -R "$GITHUB_REPOSITORY" --body "Seuls les membres de ce dépôt peuvent lancer un calcul."
+               gh issue close "$NUM" -R "$GITHUB_REPOSITORY"
+               exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v4
+
+      - name: Préparer la zone
+        id: prep
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: python3 scripts/preparer.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preparation
+          path: travail/
+          retention-days: 3
+
+      - name: Annoncer le lancement
+        run: gh issue comment "$NUM" -R "$GITHUB_REPOSITORY" --body-file travail/annonce.md
+
+      - name: Signaler une demande invalide
+        if: failure()
+        run: |
+          if [ -f travail/erreur.md ]; then
+            gh issue comment "$NUM" -R "$GITHUB_REPOSITORY" --body-file travail/erreur.md
+            gh issue close "$NUM" -R "$GITHUB_REPOSITORY"
+          fi
+
+  # 2. Reconstruire les bâtiments, jusqu'à 20 machines en parallèle
+  calculer:
+    needs: preparer
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        lot: ${{ fromJSON(needs.preparer.outputs.lots) }}
+    steps:
+      - name: Libérer de l'espace disque
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: preparation
+          path: travail
+
+      - name: Reconstruire les bâtiments du lot ${{ matrix.lot }}
+        run: bash scripts/calculer_lot.sh "${{ matrix.lot }}"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lot-${{ matrix.lot }}
+          path: resultats/
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # 3. Assembler, convertir, publier et répondre dans la demande
+  assembler:
+    needs: [preparer, calculer]
+    if: ${{ !cancelled() && needs.preparer.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Libérer de l'espace disque
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: preparation
+          path: travail
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: lot-*
+          path: resultats
+          merge-multiple: true
+
+      - name: Assembler les carrés
+        run: python3 scripts/assembler.py
+
+      - name: Convertir (carte 3D, GeoPackage) et empaqueter
+        run: bash scripts/convertir.sh
+
+      - name: Publier et envoyer les liens
+        run: bash scripts/terminer.sh
+
+  # En cas de problème, prévenir dans la demande
+  signaler-echec:
+    needs: [preparer, calculer, assembler]
+    if: ${{ always() && needs.preparer.result == 'success' && needs.assembler.result != 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh issue comment "$NUM" -R "$GITHUB_REPOSITORY" --body "❌ Le calcul a échoué. Détail : $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

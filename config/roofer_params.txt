@@ -1,0 +1,4 @@
+# Réglages supplémentaires passés à roofer (un ou plusieurs par ligne).
+# Les lignes commençant par # sont ignorées. Fichier vide = réglages par défaut.
+# Exemple, une fois les bons réglages trouvés par essais :
+# --complexity-factor 0.7

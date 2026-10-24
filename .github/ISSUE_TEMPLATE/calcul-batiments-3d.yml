@@ -1,0 +1,23 @@
+name: Calcul de bâtiments 3D
+description: Reconstruire en 3D les bâtiments d'une zone (formulaire pré-rempli par la carte de sélection)
+title: "[Calcul 3D] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ce formulaire est normalement **pré-rempli par la carte de sélection**.
+        Il suffit de cliquer sur **Create** (ou **Submit new issue**) en bas de la page.
+        Le lien vers les résultats sera ajouté ici en commentaire à la fin du calcul.
+  - type: input
+    id: nom
+    attributes:
+      label: Nom de la zone
+    validations:
+      required: true
+  - type: textarea
+    id: zone
+    attributes:
+      label: Zone (ne pas modifier)
+      render: json
+    validations:
+      required: true
