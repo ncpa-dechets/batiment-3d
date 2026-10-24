@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bâtiments 3D à la demande</title>
+<meta name="description" content="Choisir des communes ou une zone sur une carte et lancer la reconstruction 3D de ses bâtiments à partir du LiDAR HD et de la BD TOPO de l'IGN.">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{
+  color-scheme:dark;
+  --fond:#121b1e; --fond-haut:#0e1618; --carte:#18242a; --carte-haut:#1d2b31;
+  --encre:#e3eae7; --gris:#a2b1ad; --gris2:#6f817d;
+  --trait:rgba(214,232,226,.09); --trait-fort:rgba(214,232,226,.18);
+  --c:#d9a27e; --accent:#e0767a; --vert:#8cbf8f; --rouge:#B91E27;
+  font-family: Calibri, "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--fond);color:var(--encre);font-size:15px;line-height:1.5;display:grid;grid-template-columns:400px 1fr;height:100vh;height:100dvh}
+a{color:var(--c)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+aside{overflow-y:auto;border-right:1px solid var(--trait);background:var(--fond-haut);border-top:3px solid var(--rouge);
+  padding:22px 22px calc(28px + env(safe-area-inset-bottom,0px))}
+.eyebrow{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
+h1{font-size:28px;line-height:1.1;margin:8px 0 10px}
+h1 em{font-style:normal;color:var(--c)}
+.intro{color:var(--gris);margin:0 0 18px}
+h2{font-size:15px;margin:0 0 10px;display:flex;align-items:center;gap:9px}
+h2 .n{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;
+  background:color-mix(in srgb,var(--c) 25%,transparent);font-size:12.5px}
+.bloc{background:var(--carte);border:1px solid var(--trait);border-radius:12px;padding:14px 16px;margin:0 0 14px}
+.aide{color:var(--gris);font-size:13.5px;margin:6px 0 0}
+
+.onglets{display:flex;border:1px solid var(--trait-fort);border-radius:8px;overflow:hidden;margin-bottom:12px}
+.onglets button{flex:1;font:inherit;padding:7px;border:0;background:transparent;color:var(--gris);cursor:pointer}
+.onglets button+button{border-left:1px solid var(--trait-fort)}
+.onglets button[aria-selected="true"]{background:var(--c);color:#1b130e;font-weight:700}
+
+input[type=text]{width:100%;font:inherit;color:var(--encre);background:var(--fond);border:1px solid var(--trait-fort);border-radius:8px;padding:8px 10px}
+input[type=text]::placeholder{color:var(--gris2)}
+.recherche{position:relative}
+#suggestions{list-style:none;margin:4px 0 0;padding:0;border:1px solid var(--trait-fort);border-radius:8px;overflow:hidden;background:var(--carte-haut)}
+#suggestions:empty{display:none}
+#suggestions button{display:block;width:100%;text-align:left;font:inherit;color:var(--encre);background:transparent;border:0;padding:7px 10px;cursor:pointer}
+#suggestions button:hover,#suggestions button:focus{background:rgba(255,255,255,.06)}
+#suggestions small{color:var(--gris)}
+
+.puces{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0;padding:0;list-style:none}
+.puces li{display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.06);border-radius:999px;padding:2px 4px 2px 10px;font-size:13px}
+.puces button{border:0;background:transparent;color:var(--gris);cursor:pointer;font-size:15px;line-height:1;padding:2px 6px;border-radius:999px}
+.puces button:hover{color:var(--encre);background:rgba(255,255,255,.1)}
+.lien{border:0;background:none;color:var(--gris);font:inherit;font-size:13px;text-decoration:underline;cursor:pointer;padding:0;margin-top:8px}
+
+.bouton{width:100%;font:inherit;font-weight:700;padding:10px 12px;border-radius:10px;cursor:pointer;border:1px solid var(--c);background:transparent;color:var(--encre)}
+.bouton:hover{background:rgba(217,162,126,.12)}
+.bouton.plein{background:var(--c);color:#1b130e;border-color:var(--c)}
+.bouton.plein:hover{filter:brightness(1.08)}
+.bouton:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.bouton.actif{background:rgba(217,162,126,.18)}
+
+.chiffres{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.chiffres div{border-left:2px solid var(--c);padding:0 0 0 10px}
+.chiffres b{display:block;font-size:20px;line-height:1.15}
+.chiffres span{font-size:12px;color:var(--gris)}
+.alerte{margin:10px 0 0;padding:8px 12px;border-radius:8px;font-size:13.5px;background:rgba(224,118,122,.1);border-left:2px solid var(--accent)}
+.alerte:empty{display:none}
+label.champ{display:block;font-size:13.5px;color:var(--gris);margin:0 0 4px}
+.etapes{margin:10px 0 0;padding-left:18px;color:var(--gris);font-size:13.5px}
+.etapes li{margin:3px 0}
+
+#cartes{list-style:none;margin:0;padding:0}
+#cartes li{padding:9px 0;border-top:1px solid var(--trait)}
+#cartes li:first-child{border-top:0;padding-top:0}
+#cartes b{display:block}
+#cartes small{color:var(--gris)}
+#cartes .liens{display:flex;gap:14px;font-size:13.5px;margin-top:3px}
+
+#carte{height:100%;background:#0b1214}
+.leaflet-container{font:inherit}
+.controle{background:rgba(14,22,24,.92);color:var(--encre);border-radius:10px;padding:8px 10px;border:1px solid var(--trait-fort);font-size:13px}
+.controle label{display:flex;align-items:center;gap:6px;cursor:pointer;margin:2px 0}
+.controle input{accent-color:var(--c)}
+.controle .etat{color:var(--gris);font-size:12px;margin-top:4px;max-width:190px}
+.bandeau{position:absolute;z-index:1000;left:50%;top:14px;transform:translateX(-50%);background:rgba(14,22,24,.94);
+  border:1px solid var(--c);color:var(--encre);border-radius:999px;padding:7px 16px;font-size:14px;pointer-events:none}
+.bandeau[hidden]{display:none}
+main{position:relative;min-height:0}
+
+@media (max-width:860px){
+  body{grid-template-columns:1fr;grid-template-rows:55vh auto;height:auto}
+  main{order:-1;height:55vh}
+  aside{border-right:0;overflow:visible}
+}
+</style>
+</head>
+<body>
+<aside aria-label="Préparer un calcul">
+  <div class="eyebrow">LiDAR HD · BD TOPO · IGN</div>
+  <h1>Bâtiments 3D<br><em>à la demande</em></h1>
+  <p class="intro">Choisissez une zone : ses bâtiments seront reconstruits en 3D, toitures comprises, sur les machines de GitHub. Vous recevrez une carte 3D en ligne, une couche pour QGIS et un modèle 3D.</p>
+
+  <section class="bloc" aria-labelledby="h-zone">
+    <h2 id="h-zone"><span class="n">1</span>Choisir la zone</h2>
+    <div class="onglets" role="tablist">
+      <button role="tab" id="t-communes" aria-selected="true">Communes</button>
+      <button role="tab" id="t-rectangle" aria-selected="false">Rectangle</button>
+    </div>
+
+    <div id="p-communes">
+      <div class="recherche">
+        <label class="champ" for="q">Commune ou intercommunalité</label>
+        <input type="text" id="q" placeholder="Ex. Cabourg, Normandie-Cabourg…" autocomplete="off">
+        <ul id="suggestions"></ul>
+      </div>
+      <p class="aide">Ou cliquez sur la carte pour ajouter ou retirer une commune.</p>
+      <ul class="puces" id="puces"></ul>
+      <button class="lien" id="vider" hidden>Tout retirer</button>
+    </div>
+
+    <div id="p-rectangle" hidden>
+      <button class="bouton" id="dessiner">Dessiner un rectangle</button>
+      <p class="aide" id="aide-rect">Cliquez sur un premier coin, puis sur le coin opposé.</p>
+    </div>
+  </section>
+
+  <section class="bloc" aria-labelledby="h-estim">
+    <h2 id="h-estim"><span class="n">2</span>Vérifier</h2>
+    <div class="chiffres">
+      <div><b id="e-surface">–</b><span>km² environ</span></div>
+      <div><b id="e-carres">–</b><span>carrés de 1 km²</span></div>
+      <div><b id="e-duree">–</b><span>de calcul (estimé)</span></div>
+    </div>
+    <p class="alerte" id="alerte"></p>
+  </section>
+
+  <section class="bloc" aria-labelledby="h-lancer">
+    <h2 id="h-lancer"><span class="n">3</span>Lancer</h2>
+    <label class="champ" for="nom">Nom de la zone</label>
+    <input type="text" id="nom" maxlength="80" placeholder="Choisissez d'abord une zone">
+    <div style="height:12px"></div>
+    <button class="bouton plein" id="lancer" disabled>Lancer le calcul sur GitHub</button>
+    <ol class="etapes">
+      <li>Une page GitHub s'ouvre, déjà remplie : cliquez sur <b>Create</b>.</li>
+      <li>Le calcul démarre aussitôt ; son avancement s'affiche dans cette page.</li>
+      <li>À la fin, les liens vers la carte 3D et les fichiers y sont ajoutés.</li>
+    </ol>
+    <p class="aide">Il faut être connecté à GitHub et membre du dépôt.</p>
+  </section>
+
+  <section class="bloc" aria-labelledby="h-cartes">
+    <h2 id="h-cartes">Cartes déjà calculées</h2>
+    <ul id="cartes"><li><small>Chargement…</small></li></ul>
+  </section>
+</aside>
+
+<main>
+  <div id="carte" aria-label="Carte de sélection"></div>
+  <div class="bandeau" id="bandeau" hidden></div>
+</main>
+
+<script>
+"use strict";
+/* ---------- Réglages ----------
+   DEPOT : "proprietaire/depot" sur GitHub. Laisser vide si la page est publiée sur
+   <proprietaire>.github.io/<depot>/ : il est alors déduit de l'adresse. */
+const DEPOT = "";
+const TAILLE = 1000, MAX_TUILES = 1200, MAX_LOTS = 20;
+const API = "https://geo.api.gouv.fr";
+
+/* ---------- Carte ---------- */
+const ign = (couche, format) => L.tileLayer(
+  "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=" + couche +
+  "&STYLE=normal&TILEMATRIXSET=PM&FORMAT=" + format + "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
+  { maxZoom: 19, attribution: "© IGN" });
+const fonds = { plan: ign("GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2", "image/png"), photo: ign("ORTHOIMAGERY.ORTHOPHOTOS", "image/jpeg") };
+const carte = L.map("carte", { zoomControl: true, layers: [fonds.plan] }).setView([46.6, 2.4], 6);
+const couche = L.featureGroup().addTo(carte);
+const style = { color: "#d9a27e", weight: 2, fillColor: "#d9a27e", fillOpacity: 0.12 };
+
+/* Contrôle : fond de carte et bâtiments BD TOPO */
+const Ctrl = L.Control.extend({
+  options: { position: "topright" },
+  onAdd() {
+    const d = L.DomUtil.create("div", "controle");
+    d.innerHTML = `<label><input type="radio" name="fond" value="plan" checked> Plan IGN</label>
+      <label><input type="radio" name="fond" value="photo"> Photo aérienne</label>
+      <label style="margin-top:6px"><input type="checkbox" id="bdtopo" checked> Bâtiments BD TOPO</label>
+      <div class="etat" id="etat-bdtopo">Visibles en zoomant sur un bourg</div>`;
+    L.DomEvent.disableClickPropagation(d);
+    d.querySelectorAll("[name=fond]").forEach(r => r.addEventListener("change", () => {
+      Object.values(fonds).forEach(f => carte.removeLayer(f));
+      fonds[r.value].addTo(carte).bringToBack();
+    }));
+    return d;
+  }
+});
+carte.addControl(new Ctrl());
+
+/* Bâtiments BD TOPO (service WFS de la Géoplateforme), à partir du zoom 16 */
+const bati = L.geoJSON(null, { style: { color: "#8fb0d8", weight: 1, fillOpacity: 0.35 }, interactive: false }).addTo(carte);
+let requeteBati = 0;
+async function chargerBati() {
+  const etat = document.getElementById("etat-bdtopo"), actif = document.getElementById("bdtopo").checked;
+  bati.clearLayers();
+  if (!actif) { etat.textContent = "Masqués"; return; }
+  if (carte.getZoom() < 16) { etat.textContent = "Visibles en zoomant sur un bourg"; return; }
+  const b = carte.getBounds(), n = ++requeteBati;
+  etat.textContent = "Chargement…";
+  const url = "https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature" +
+    "&TYPENAMES=BDTOPO_V3:batiment&OUTPUTFORMAT=application/json&SRSNAME=EPSG:4326&COUNT=4000" +
+    `&BBOX=${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()},urn:ogc:def:crs:EPSG::4326`;
+  try {
+    const gj = await (await fetch(url)).json();
+    if (n !== requeteBati) return;
+    // selon le serveur, les coordonnées peuvent arriver en latitude, longitude : on remet dans l'ordre
+    const premier = gj.features[0]?.geometry?.coordinates?.flat(3);
+    if (premier && premier[0] > 40) gj.features.forEach(f => inverser(f.geometry));
+    bati.addData(gj);
+    etat.textContent = `${gj.features.length} bâtiments affichés` + (gj.features.length >= 4000 ? " (zoomez pour tout voir)" : "");
+  } catch (e) { etat.textContent = "Service BD TOPO indisponible"; }
+}
+function inverser(g) {
+  const sw = c => typeof c[0] === "number" ? [c[1], c[0], ...c.slice(2)] : c.map(sw);
+  g.coordinates = sw(g.coordinates);
+}
+carte.on("moveend", chargerBati);
+document.addEventListener("change", e => { if (e.target.id === "bdtopo") chargerBati(); });
+
+/* ---------- État de la sélection ---------- */
+let mode = "communes";
+const communes = new Map();   // code -> { nom, feature, layer, surface (ha) }
+let epciChoisi = null;         // { nom, codes:Set } si toute une intercommunalité a été ajoutée
+let rect = null;               // L.LatLngBounds
+let nomManuel = false;
+
+function afficherBandeau(t) { const b = document.getElementById("bandeau"); b.textContent = t; b.hidden = !t; }
+
+/* ---------- Onglets ---------- */
+function choisirMode(m) {
+  mode = m;
+  document.getElementById("t-communes").setAttribute("aria-selected", m === "communes");
+  document.getElementById("t-rectangle").setAttribute("aria-selected", m === "rectangle");
+  document.getElementById("p-communes").hidden = m !== "communes";
+  document.getElementById("p-rectangle").hidden = m !== "rectangle";
+  arreterDessin();
+  redessiner(); majEstimation();
+}
+document.getElementById("t-communes").onclick = () => choisirMode("communes");
+document.getElementById("t-rectangle").onclick = () => choisirMode("rectangle");
+
+/* ---------- Recherche de communes et d'intercommunalités ---------- */
+const q = document.getElementById("q"), sugg = document.getElementById("suggestions");
+let minuteur;
+q.addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(rechercher, 250); });
+async function rechercher() {
+  const t = q.value.trim();
+  if (t.length < 2) { sugg.innerHTML = ""; return; }
+  const [cs, es] = await Promise.all([
+    fetch(`${API}/communes?nom=${encodeURIComponent(t)}&fields=nom,code,codeDepartement&boost=population&limit=6`).then(r => r.json()).catch(() => []),
+    fetch(`${API}/epcis?nom=${encodeURIComponent(t)}&fields=nom,code&limit=4`).then(r => r.json()).catch(() => [])
+  ]);
+  sugg.innerHTML = "";
+  for (const c of cs) ajouterSuggestion(`${c.nom} <small>(${c.codeDepartement})</small>`, () => ajouterCommune(c.code, true));
+  for (const e of es) ajouterSuggestion(`${e.nom} <small>— intercommunalité</small>`, () => ajouterEpci(e));
+}
+function ajouterSuggestion(html, action) {
+  const li = document.createElement("li"), b = document.createElement("button");
+  b.innerHTML = html; b.onclick = () => { sugg.innerHTML = ""; q.value = ""; action(); };
+  li.append(b); sugg.append(li);
+}
+
+async function ajouterCommune(code, recentrer) {
+  if (communes.has(code)) return;
+  const f = await fetch(`${API}/communes/${code}?fields=nom,code,surface&format=geojson&geometry=contour`).then(r => r.json());
+  enregistrer(f); epciChoisi = null;
+  apresChangement(recentrer);
+}
+async function ajouterEpci(e) {
+  afficherBandeau(`Chargement des communes de ${e.nom}…`);
+  const gj = await fetch(`${API}/communes?codeEpci=${e.code}&fields=nom,code,surface&format=geojson&geometry=contour`).then(r => r.json());
+  gj.features.forEach(enregistrer);
+  epciChoisi = { nom: e.nom, codes: new Set(gj.features.map(f => f.properties.code)) };
+  afficherBandeau("");
+  apresChangement(true);
+}
+function enregistrer(f) {
+  const p = f.properties;
+  if (communes.has(p.code)) return;
+  const layer = L.geoJSON(f, { style }).bindTooltip(p.nom, { sticky: true });
+  communes.set(p.code, { nom: p.nom, feature: f, layer, surface: p.surface || 0 });
+}
+function retirerCommune(code) {
+  communes.delete(code);
+  if (epciChoisi) epciChoisi = null;
+  apresChangement(false);
+}
+document.getElementById("vider").onclick = () => { communes.clear(); epciChoisi = null; apresChangement(false); };
+
+/* Clic sur la carte : ajouter ou retirer la commune cliquée */
+carte.on("click", async e => {
+  if (mode === "rectangle") return clicRectangle(e);
+  const r = await fetch(`${API}/communes?lat=${e.latlng.lat}&lon=${e.latlng.lng}&fields=nom,code`).then(r => r.json()).catch(() => []);
+  if (!r.length) return;
+  communes.has(r[0].code) ? retirerCommune(r[0].code) : ajouterCommune(r[0].code, false);
+});
+
+function apresChangement(recentrer) {
+  const ul = document.getElementById("puces"); ul.innerHTML = "";
+  const liste = [...communes.entries()].sort((a, b) => a[1].nom.localeCompare(b[1].nom, "fr"));
+  for (const [code, c] of liste) {
+    const li = document.createElement("li"), b = document.createElement("button");
+    li.textContent = c.nom; b.textContent = "×"; b.title = `Retirer ${c.nom}`; b.setAttribute("aria-label", `Retirer ${c.nom}`);
+    b.onclick = () => retirerCommune(code); li.append(b); ul.append(li);
+  }
+  document.getElementById("vider").hidden = communes.size < 2;
+  redessiner();
+  if (recentrer && couche.getLayers().length) carte.fitBounds(couche.getBounds(), { padding: [30, 30] });
+  majEstimation();
+}
+
+/* ---------- Rectangle (deux clics, fonctionne aussi au doigt) ---------- */
+let dessin = null, apercu = null;
+document.getElementById("dessiner").onclick = () => {
+  if (dessin) { arreterDessin(); return; }
+  dessin = { coin: null };
+  document.getElementById("dessiner").classList.add("actif");
+  document.getElementById("dessiner").textContent = "Annuler le dessin";
+  afficherBandeau("Cliquez sur un premier coin du rectangle");
+  carte.getContainer().style.cursor = "crosshair";
+};
+function clicRectangle(e) {
+  if (!dessin) return;
+  if (!dessin.coin) { dessin.coin = e.latlng; afficherBandeau("Cliquez sur le coin opposé"); return; }
+  rect = L.latLngBounds(dessin.coin, e.latlng);
+  arreterDessin(); redessiner(); majEstimation();
+  carte.fitBounds(rect, { padding: [30, 30] });
+}
+carte.on("mousemove", e => {
+  if (!dessin || !dessin.coin) return;
+  const b = L.latLngBounds(dessin.coin, e.latlng);
+  apercu ? apercu.setBounds(b) : (apercu = L.rectangle(b, { ...style, dashArray: "6 6" }).addTo(carte));
+});
+function arreterDessin() {
+  dessin = null;
+  if (apercu) { carte.removeLayer(apercu); apercu = null; }
+  const b = document.getElementById("dessiner");
+  b.classList.remove("actif"); b.textContent = rect ? "Redessiner le rectangle" : "Dessiner un rectangle";
+  afficherBandeau(""); carte.getContainer().style.cursor = "";
+}
+
+function redessiner() {
+  couche.clearLayers();
+  if (mode === "communes") communes.forEach(c => couche.addLayer(c.layer));
+  else if (rect) couche.addLayer(L.rectangle(rect, style));
+}
+
+/* ---------- Estimation : même découpage que le calcul ---------- */
+const Ee = 0.0818191910428158, Nn = 0.7256077650532670, Cc = 11754255.426096, XS = 700000, YS = 12655612.049876, LON0 = 3 * Math.PI / 180;
+function l93(lon, lat) {
+  const p = lat * Math.PI / 180, s = Math.sin(p);
+  const Li = Math.log(Math.tan(Math.PI / 4 + p / 2) * Math.pow((1 - Ee * s) / (1 + Ee * s), Ee / 2));
+  const R = Cc * Math.exp(-Nn * Li), g = Nn * (lon * Math.PI / 180 - LON0);
+  return [XS + R * Math.sin(g), YS - R * Math.cos(g)];
+}
+function dans(x, y, a) {
+  let ok = false;
+  for (let i = 0, j = a.length - 1; i < a.length; j = i++) {
+    const [xi, yi] = a[i], [xj, yj] = a[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) ok = !ok;
+  }
+  return ok;
+}
+function anneauxZone() {
+  if (mode === "rectangle") {
+    if (!rect) return [];
+    const w = rect.getWest(), s = rect.getSouth(), e = rect.getEast(), n = rect.getNorth();
+    return [[[w, s], [e, s], [e, n], [w, n]]];
+  }
+  const res = [];
+  communes.forEach(c => {
+    const g = c.feature.geometry;
+    (g.type === "Polygon" ? [g.coordinates] : g.coordinates).forEach(p => res.push(p[0]));
+  });
+  return res;
+}
+function compterTuiles(anneauxWgs) {
+  const an = anneauxWgs.map(a => a.map(p => l93(p[0], p[1])));
+  if (!an.length) return 0;
+  const bx = an.map(a => [Math.min(...a.map(p => p[0])), Math.min(...a.map(p => p[1])), Math.max(...a.map(p => p[0])), Math.max(...a.map(p => p[1]))]);
+  const x0 = Math.floor(Math.min(...bx.map(b => b[0])) / TAILLE) * TAILLE, y0 = Math.floor(Math.min(...bx.map(b => b[1])) / TAILLE) * TAILLE;
+  const x1 = Math.max(...bx.map(b => b[2])), y1 = Math.max(...bx.map(b => b[3]));
+  if ((x1 - x0) * (y1 - y0) / (TAILLE * TAILLE) > 40000) return Infinity;
+  let n = 0;
+  for (let x = x0; x < x1; x += TAILLE) for (let y = y0; y < y1; y += TAILLE) {
+    const x2 = x + TAILLE, y2 = y + TAILLE;
+    const test = [[x + TAILLE / 2, y + TAILLE / 2], [x, y], [x2, y], [x, y2], [x2, y2]];
+    for (let k = 0; k < an.length; k++) {
+      const b = bx[k];
+      if (b[2] < x || b[0] > x2 || b[3] < y || b[1] > y2) continue;
+      if (test.some(([px, py]) => dans(px, py, an[k])) || an[k].some(([px, py]) => px >= x && px <= x2 && py >= y && py <= y2)) { n++; break; }
+    }
+  }
+  return n;
+}
+function surfaceKm2() {
+  if (mode === "communes") { let ha = 0; communes.forEach(c => ha += c.surface); return ha / 100; }
+  if (!rect) return 0;
+  const [xa, ya] = l93(rect.getWest(), rect.getSouth()), [xb, yb] = l93(rect.getEast(), rect.getNorth());
+  return Math.abs((xb - xa) * (yb - ya)) / 1e6;
+}
+function nomParDefaut() {
+  if (mode === "rectangle") {
+    if (!rect) return "";
+    const [xa, ya] = l93(rect.getWest(), rect.getSouth()), [xb, yb] = l93(rect.getEast(), rect.getNorth());
+    return `Rectangle ${(Math.abs(xb - xa) / 1000).toFixed(1).replace(".", ",")} × ${(Math.abs(yb - ya) / 1000).toFixed(1).replace(".", ",")} km`;
+  }
+  const noms = [...communes.values()].map(c => c.nom).sort((a, b) => a.localeCompare(b, "fr"));
+  if (!noms.length) return "";
+  if (epciChoisi && epciChoisi.codes.size === communes.size) return epciChoisi.nom;
+  if (noms.length === 1) return noms[0];
+  if (noms.length <= 3) return noms.join(", ");
+  return `${noms.slice(0, 2).join(", ")} et ${noms.length - 2} autres communes`;
+}
+const nomChamp = document.getElementById("nom");
+nomChamp.addEventListener("input", () => { nomManuel = nomChamp.value.trim() !== ""; majBouton(); });
+
+function majEstimation() {
+  const n = compterTuiles(anneauxZone()), alerte = document.getElementById("alerte");
+  const s = surfaceKm2();
+  document.getElementById("e-surface").textContent = s ? Math.round(s).toLocaleString("fr-FR") : "–";
+  document.getElementById("e-carres").textContent = n === Infinity ? "trop" : (n ? n.toLocaleString("fr-FR") : "–");
+  if (n && n !== Infinity) {
+    const lots = Math.min(MAX_LOTS, n), d = Math.ceil(Math.ceil(n / lots) / 2) * 4 + 20;
+    document.getElementById("e-duree").textContent = d < 90 ? `${d}–${Math.round(d * 1.6)} min` : `${(d / 60).toFixed(1).replace(".", ",")}–${(d * 1.6 / 60).toFixed(1).replace(".", ",")} h`;
+  } else document.getElementById("e-duree").textContent = "–";
+  alerte.textContent = !depot()
+    ? "Dépôt GitHub inconnu : renseignez la constante DEPOT en haut du script de cette page."
+    : n > MAX_TUILES
+      ? `Zone trop grande : ${n === Infinity ? "plus de " + MAX_TUILES : n} carrés pour ${MAX_TUILES} au maximum. Découpez-la en plusieurs demandes.`
+      : "";
+  if (!nomManuel) nomChamp.value = nomParDefaut();
+  majBouton(n);
+}
+let derniereEstimation = 0;
+function majBouton(n) {
+  if (n !== undefined) derniereEstimation = n;
+  const ok = derniereEstimation > 0 && derniereEstimation <= MAX_TUILES && nomChamp.value.trim() && depot();
+  document.getElementById("lancer").disabled = !ok;
+}
+
+/* ---------- Lancer : ouvrir le formulaire GitHub pré-rempli ---------- */
+function depot() {
+  if (DEPOT) return DEPOT;
+  const h = location.hostname;
+  if (h.endsWith(".github.io")) {
+    const proprio = h.split(".")[0], nomDepot = location.pathname.split("/").filter(Boolean)[0];
+    return nomDepot ? `${proprio}/${nomDepot}` : null;
+  }
+  return null;
+}
+
+document.getElementById("lancer").onclick = () => {
+  const r = (v, k = 5) => Math.round(v * 10 ** k) / 10 ** k;
+  const zone = mode === "rectangle"
+    ? { type: "rectangle", bbox: [r(rect.getWest()), r(rect.getSouth()), r(rect.getEast()), r(rect.getNorth())] }
+    : { type: "communes", codes: [...communes.keys()].sort() };
+  const nom = nomChamp.value.trim();
+  const url = `https://github.com/${depot()}/issues/new?template=calcul-batiments-3d.yml` +
+    `&title=${encodeURIComponent("[Calcul 3D] " + nom)}&nom=${encodeURIComponent(nom)}` +
+    `&zone=${encodeURIComponent(JSON.stringify(zone))}`;
+  window.open(url, "_blank", "noopener");
+};
+
+/* ---------- Cartes déjà calculées ---------- */
+(async () => {
+  const ul = document.getElementById("cartes");
+  try {
+    const liste = await (await fetch("cartes/liste.json", { cache: "no-store" })).json();
+    ul.innerHTML = liste.length ? "" : "<li><small>Aucune carte pour l'instant.</small></li>";
+    for (const c of liste) {
+      const li = document.createElement("li");
+      li.innerHTML = `<b></b><small></small><div class="liens"><a target="_blank" rel="noopener">Carte 3D</a><a>Fichiers (QGIS, OBJ)</a></div>`;
+      li.querySelector("b").textContent = c.nom;
+      li.querySelector("small").textContent = `${Number(c.batiments).toLocaleString("fr-FR")} bâtiments · ${new Date(c.date).toLocaleDateString("fr-FR")}`;
+      const [a1, a2] = li.querySelectorAll("a");
+      a1.href = `cartes/${c.dossier}/`; a2.href = c.telechargement;
+      ul.append(li);
+    }
+  } catch (e) { ul.innerHTML = "<li><small>Aucune carte pour l'instant.</small></li>"; }
+})();
+
+majEstimation();
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+[
+ {
+  "dossier": "1-rectangle-0-2-0-2-km",
+  "nom": "Rectangle 0,2 × 0,2 km",
+  "batiments": 12,
+  "date": "2026-10-24",
+  "telechargement": "https://github.com/ncpa-dechets/batiment-3d/releases/download/calcul-1/batiments_3d_1-rectangle-0-2-0-2-km.zip",
+  "demande": "https://github.com/ncpa-dechets/batiment-3d/issues/1"
+ }
+]
